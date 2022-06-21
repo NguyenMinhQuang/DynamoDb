@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go/service/dynamodb/expression"
 	"github.com/dynamodb/entities/user"
 
 	"github.com/dynamodb/repository/database"
@@ -54,8 +55,31 @@ func (c *UserController) GetOneUser(Id uuid.UUID) (user.User, error) {
 	return uR, nil
 }
 func (c *UserController) GetListUser() ([]user.User, error) {
-	return []user.User{}, nil
+	lstUser := []user.User{}
+	var entity user.User
+	filter := expression.Name("_id").NotEqual(expression.Value(""))
+	condition, err := expression.NewBuilder().WithFilter(filter).Build()
+	if err != nil {
+		return lstUser, err
+	}
+	reponse, err := c.repository.FindAll(condition, entity.TableName())
+	if err != nil {
+		return lstUser, err
+	}
+
+	if reponse != nil {
+		for _, value := range reponse.Items {
+			item := user.User{}
+			err = dynamodbattribute.UnmarshalMap(value, &item)
+			if err != nil {
+				return lstUser, fmt.Errorf("Got error unmarshalling: %s", err)
+			}
+			lstUser = append(lstUser, item)
+		}
+	}
+	return lstUser, nil
 }
+
 func (c *UserController) InsertUser(entity *user.User) error {
 	entity.CreatedAt = time.Now()
 	_, err := c.repository.CreateOrUpdate(entity.UserInfoCreate(), entity.TableName())
@@ -64,9 +88,25 @@ func (c *UserController) InsertUser(entity *user.User) error {
 	}
 	return nil
 }
+
 func (c *UserController) UpdatetUser(id uuid.UUID, entity *user.User) error {
-	return nil
+	found, err := c.GetOneUser(id)
+	if err != nil {
+		return err
+	}
+	found.ID = id
+	found.UserName = entity.UserName
+	found.Address = entity.Address
+	found.UpdatedAt = entity.UpdatedAt
+
+	_, err = c.repository.CreateOrUpdate(found.UserInfoCreate(), entity.TableName())
+	return err
 }
 func (c *UserController) DeleteUser(id uuid.UUID) error {
-	return nil
+	entity, err := c.GetOneUser(id)
+	if err != nil {
+		return err
+	}
+	_, err = c.repository.Delete(entity.GetFilterId(), entity.TableName())
+	return err
 }
